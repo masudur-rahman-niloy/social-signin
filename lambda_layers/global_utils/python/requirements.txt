@@ -1,0 +1,10 @@
+requests
+pymysql
+aws-lambda-powertools[pydantic]
+aws-encryption-sdk==1.7.1
+pyopenssl
+ksuid
+anytree
+paypal-checkout-serversdk
+sslcommerz-lib
+pydantic[email]

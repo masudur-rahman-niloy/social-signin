@@ -1,0 +1,12 @@
+version = 0.1
+[default]
+[default.deploy]
+[default.deploy.parameters]
+stack_name = "mike-app"
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-20fggjmr6216"
+s3_prefix = "mike-app"
+region = "us-west-2"
+profile = "ddms_juthi"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_AUTO_EXPAND"
+parameter_overrides = "StageName=\"dev\" ProjectNme=\"spendwell\" PrimaryTableName=\"spendwell-db\" SecondaryTableName=\"spendwell-secondary-db\" UserPoolName=\"spendwell-user-pool\" IdentityPoolName=\"spendwell-identity-pool\" UserPoolClientName=\"spendwell-userpool-client\" CreateCognitoDomain=\"y\" DomainName=\"spendwell-auth-stack\" EnableFederatedGoogle=\"y\" EnableFederatedFacebook=\"y\" EnableFederatedLinkedIn=\"y\" VerifyEmail=\"y\" VerifyPhone=\"y\" EmailAsAlias=\"y\" PhoneAsAlias=\"y\" PasswordMinimumLength=\"6\" PasswordLowerLetterRequired=\"y\" PasswordUpperLetterRequired=\"y\" PasswordNumberRequired=\"y\" PasswordSymbolRequired=\"n\" NotificationQueueName=\"spendwell-notification-queue\" NotificationDLQueueName=\"spendwell-notification-dl-queue\" DeviceEndpointRegistrationQueueName=\"spendwell-device-registration-endpoint-queue\" DeviceEndpointRegistrationDLQueueName=\"spendwell-device-registration-endpoint-dl-queue\" PowertoolsSqsService=\"spendwell-powertools-sqs\" PowertoolsAuthService=\"spendwell-powertools-auth\""

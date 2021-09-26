@@ -1,0 +1,655 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Demo Authentication Nested Stack
+
+  Sample SAM Template for Demo Authentication Nested Stack
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+
+# adding all environment variables in Global will generate circular dependency for cognito lambda triggers!
+Globals:
+  Function:
+    Timeout: 10
+    Runtime: python3.8
+    Layers:
+      - !Ref GlobalUtilsLambdaLayerArn
+    Tracing: Active
+
+Parameters:
+  StageName:
+    Type: String
+  PrimaryTable:
+    Type: String
+  SecondaryTable:
+    Type: String
+  UserPoolName:
+    Type: String
+  IdentityPoolName:
+    Type: String
+  UserPoolClientName:
+    Type: String
+  CreateCognitoDomain:
+    Type: String
+  EnableFederatedGoogle:
+    Type: String
+  EnableFederatedFacebook:
+    Type: String
+  EnableFederatedLinkedIn:
+    Type: String
+    Default: "y"
+  DomainName:
+    Type: String
+  VerifyEmail:
+    Type: String
+  VerifyPhone:
+    Type: String
+  EmailAsAlias:
+    Type: String
+  PhoneAsAlias:
+    Type: String
+  PasswordMinimumLength:
+    Type: Number
+  PasswordLowerLetterRequired:
+    Type: String
+  PasswordUpperLetterRequired:
+    Type: String
+  PasswordNumberRequired:
+    Type: String
+  PasswordSymbolRequired:
+    Type: String
+  EmailSendingFrom:
+    Type: String
+  EmailSendingSESSource:
+    Type: String
+  FIDGoogleClientId:
+    Type: String
+  FIDGoogleClientSecret:
+    Type: String
+  FIDFacebookClientId:
+    Type: String
+  FIDFacebookClientSecret:
+    Type: String
+  UserPoolClientCallBackUrlDevAndProd:
+    Type: CommaDelimitedList
+  UserPoolClientLogOutUrlDevAndProd:
+    Type: CommaDelimitedList
+  CustomRoleArn:
+    Type: String
+  PowertoolsAuthService:
+    Type: String
+  GlobalUtilsLambdaLayerArn:
+    Type: String
+  NotificationQueueUrl:
+    Type: String
+  DeviceRegistrationQueueUrl:
+    Type: String
+
+Conditions:
+  DoRequireLowerLetter: !Equals [!Ref PasswordLowerLetterRequired, "y"]
+  DoRequireUpperLetter: !Equals [!Ref PasswordUpperLetterRequired, "y"]
+  DoRequireNumber: !Equals [!Ref PasswordNumberRequired, "y"]
+  DoRequireSymbol: !Equals [!Ref PasswordSymbolRequired, "y"]
+  DoVerifyEmail: !Equals [!Ref VerifyEmail, "y"]
+  DoVerifyPhone: !Equals [!Ref VerifyPhone, "y"]
+  DoEmailAsAlias: !Equals [!Ref EmailAsAlias, "y"]
+  DoPhoneAsAlias: !Equals [!Ref PhoneAsAlias, "y"]
+  DoCreateCognitoDomain: !Equals [!Ref CreateCognitoDomain, "y"]
+  DoEnableFederatedGoogle: !Equals [!Ref EnableFederatedGoogle, "y"]
+  DoEnableFederatedFacebook: !Equals [!Ref EnableFederatedFacebook, "y"]
+  DoEnableFederatedLinkedIn: !Equals [!Ref EnableFederatedLinkedIn, "y"]
+  DoCreateOAuthFlow: !Or [!Equals [!Ref EnableFederatedFacebook, "y"], !Equals [!Ref EnableFederatedGoogle, "y"]]
+  # DoSignupUsingEmail: !Equals [!Ref SignupUsernameEmail, "y"]
+  # DoSignupUsingPhone: !Equals [!Ref SignupUsernamePhone, "y"]
+
+
+Resources:
+  # ================================= Keys =================================
+  CustomKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: An example symmetric CMK
+      EnableKeyRotation: true
+      PendingWindowInDays: 20
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+        - Sid: Enable IAM User Permissions
+          Effect: Allow
+          Principal:
+            AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+          Action: kms:*
+          Resource: '*'
+
+  # ================================= Role & Permission =================================
+  CognitoPreSignUpFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PreSignUpFunction.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  CognitoPostConfirmationFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PostConfirmationFunction.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  CognitoPreAuthenticationFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt PreAuthenticationFunction.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  CognitoCustomSMSSenderPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CustomSMSSenderFunction.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  CognitoCustomEmailSenderPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt CustomEmailSenderFunction.Arn
+      Principal: cognito-idp.amazonaws.com
+      SourceArn: !GetAtt UserPool.Arn
+
+  CognitoUnAuthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Federated: "cognito-identity.amazonaws.com"
+            Action:
+              - "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+              "ForAnyValue:StringLike":
+                "cognito-identity.amazonaws.com:amr": unauthenticated
+      Policies:
+        - PolicyName: !Sub "${IdentityPoolName}_unauthenticated_policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "mobileanalytics:PutEvents"
+                  - "cognito-sync:*"
+                  - "s3:*"
+                Resource: "*"
+
+  CognitoAuthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Federated: "cognito-identity.amazonaws.com"
+            Action:
+              - "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+              "ForAnyValue:StringLike":
+                "cognito-identity.amazonaws.com:amr": authenticated
+      Policies:
+        - PolicyName: !Sub "${IdentityPoolName}_authenticated_policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "mobileanalytics:PutEvents"
+                  - "cognito-sync:*"
+                  - "cognito-identity:*"
+                  - "s3:*"
+                Resource: "*"
+              - Effect: "Allow"
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: "*"
+
+  CognitoUserPoolMemberRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Federated: "cognito-identity.amazonaws.com"
+            Action:
+              - "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                "cognito-identity.amazonaws.com:aud": !Ref IdentityPool
+              "ForAnyValue:StringLike":
+                "cognito-identity.amazonaws.com:amr": authenticated
+      Policies:
+        - PolicyName: !Sub "${UserPoolName}_member_policy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "execute-api:Invoke"
+                Resource: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${NestedDefaultApi}/*/GET/hello/member-hello"
+              - Effect: "Allow"
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: "*"
+  
+  CustomSNSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: Allow
+            Principal:
+              Service:
+                - cognito-idp.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: CustomSNSPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:*
+                Resource: "*"
+
+
+  # ================================= User Pool & Client =================================
+
+  UserPoolMemberGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      Description: "member group"
+      GroupName: member
+      Precedence: 3
+      RoleArn: !GetAtt CognitoUserPoolMemberRole.Arn
+      UserPoolId: !Ref UserPool
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Condition: DoCreateCognitoDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Ref DomainName
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Ref UserPoolName
+      AliasAttributes:
+        - !If [DoEmailAsAlias, email, !Ref "AWS::NoValue"]
+        - !If [DoPhoneAsAlias, phone_number, !Ref "AWS::NoValue"]
+      AutoVerifiedAttributes:
+        - !If [DoVerifyEmail, email, !Ref "AWS::NoValue"]
+        - !If [DoVerifyPhone, phone_number, !Ref "AWS::NoValue"]
+      Schema:
+        - Name: name
+          AttributeDataType: String
+          Mutable: true # if mutable is false, issues during signin while trying to update attributes
+          Required: false
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: phone_number
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+        - Name: role
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MaxLength: 256
+            MinLength: 1
+        - Name: signupMedium
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MaxLength: 256
+            MinLength: 1
+        - Name: customUserId
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MaxLength: 256
+            MinLength: 1
+        - Name: firstName
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MaxLength: 256
+            MinLength: 1
+        - Name: lastName
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MaxLength: 256
+            MinLength: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: !Ref PasswordMinimumLength
+          RequireLowercase: !If [DoRequireLowerLetter, true, !Ref "AWS::NoValue"]
+          RequireUppercase: !If [DoRequireUpperLetter, true, !Ref "AWS::NoValue"]
+          RequireNumbers: !If [DoRequireNumber, true, !Ref "AWS::NoValue"]
+          RequireSymbols: !If [DoRequireSymbol, true, !Ref "AWS::NoValue"]
+      EmailConfiguration:
+          EmailSendingAccount: DEVELOPER
+          From: !Ref EmailSendingFrom
+          SourceArn: !Ref EmailSendingSESSource
+      SmsConfiguration:
+        SnsCallerArn: !GetAtt CustomSNSRole.Arn
+      LambdaConfig:
+        KMSKeyID: !GetAtt CustomKey.Arn
+        PreSignUp: !GetAtt PreSignUpFunction.Arn
+        PostConfirmation: !GetAtt PostConfirmationFunction.Arn
+        PreAuthentication: !GetAtt PreAuthenticationFunction.Arn
+        CustomSMSSender:
+          LambdaArn: !GetAtt CustomSMSSenderFunction.Arn
+          LambdaVersion: V1_0
+        CustomEmailSender:
+          LambdaArn: !GetAtt CustomEmailSenderFunction.Arn
+          LambdaVersion: V1_0
+      UsernameConfiguration:
+        CaseSensitive: true
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn:
+      - CognitoUserPoolIdentityProviderGoogle
+      - CognitoUserPoolIdentityProviderFacebook
+    Properties:
+      GenerateSecret: false
+      ClientName: !Ref UserPoolClientName
+      UserPoolId: !Ref UserPool
+      SupportedIdentityProviders:
+        - COGNITO
+        - !If [DoEnableFederatedFacebook, Facebook, !Ref "AWS::NoValue"]
+        - !If [DoEnableFederatedGoogle, Google, !Ref "AWS::NoValue"]
+      CallbackURLs: !If [DoCreateOAuthFlow, !Ref UserPoolClientCallBackUrlDevAndProd, !Ref "AWS::NoValue"]
+      LogoutURLs: !If [DoCreateOAuthFlow, !Ref UserPoolClientLogOutUrlDevAndProd, !Ref "AWS::NoValue"]
+      AllowedOAuthFlowsUserPoolClient: !If [DoCreateOAuthFlow, true, !Ref "AWS::NoValue"] # true
+      AllowedOAuthFlows: !If
+        - DoCreateOAuthFlow
+        -
+          - code
+          - implicit
+        - !Ref "AWS::NoValue"
+        # - code
+        # - implicit
+      AllowedOAuthScopes: !If
+        - DoCreateOAuthFlow
+        -
+          - email
+          - openid
+          - profile
+          - aws.cognito.signin.user.admin
+        - !Ref "AWS::NoValue"
+      ExplicitAuthFlows:
+        - ALLOW_USER_PASSWORD_AUTH
+        - ALLOW_ADMIN_USER_PASSWORD_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+        - ALLOW_USER_SRP_AUTH
+  # cognito explicit auth
+  CognitoUserPoolIdentityProviderGoogle:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: DoEnableFederatedGoogle
+    Properties:
+      ProviderName: Google
+      AttributeMapping:
+        email: email
+        name: name
+        # given_name: given_name
+        # family_name: family_name
+        # phone_number: phoneNumbers
+      ProviderDetails:
+        client_id: !Ref FIDGoogleClientId # <yourclientid>.apps.googleusercontent.com
+        client_secret: !Ref FIDGoogleClientSecret #<yourclientsecret>
+        authorize_scopes: profile email openid
+      ProviderType: Google
+      UserPoolId: !Ref UserPool
+
+  CognitoUserPoolIdentityProviderFacebook:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: DoEnableFederatedFacebook
+    Properties:
+      ProviderName: Facebook
+      AttributeMapping:
+        email: email
+        name: name
+        # given_name: first_name
+        # family_name: last_name
+      ProviderDetails:
+        client_id: !Ref FIDFacebookClientId # <yourclientid>.apps.googleusercontent.com
+        client_secret: !Ref FIDFacebookClientSecret #<yourclientsecret>
+        authorize_scopes: "public_profile, email"
+      ProviderType: Facebook
+      UserPoolId: !Ref UserPool
+
+  IdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: !Ref IdentityPoolName
+      AllowUnauthenticatedIdentities: true
+      CognitoIdentityProviders:
+        - ClientId: !Ref UserPoolClient
+          ProviderName: !GetAtt UserPool.ProviderName
+
+  IdentityPoolRoleMapping:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref IdentityPool
+      RoleMappings:
+        CognitoProvider:
+          IdentityProvider: !Sub "cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}:${UserPoolClient}"
+          # IdentityProvider: !Join ["", ["cognito-idp.", !Ref "AWS::Region", ".amazonaws.com" , "/", !Ref UserPool, ":", !Ref UserPoolClient],]
+          AmbiguousRoleResolution: Deny # AuthenticatedRole, Deny
+          Type: Token # Token, Rules
+      Roles:
+        authenticated: !GetAtt CognitoAuthenticatedRole.Arn
+        unauthenticated: !GetAtt CognitoUnAuthenticatedRole.Arn
+
+
+  # ================================= Api =================================
+
+  NestedDefaultApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      TracingEnabled: true
+      StageName: !Ref StageName
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'*'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'*'"
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+      Auth:
+        # DefaultAuthorizer: AWS_IAM
+        AddDefaultAuthorizerToCorsPreflight: False
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
+
+  # ================================= Triggers =================================
+
+
+  CustomSMSSenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      # Timeout: 10
+      CodeUri: lambdas/authentication/
+      Handler: custom_sms_sender.lambda_handler
+      Role: !Ref CustomRoleArn
+      Environment:
+        Variables:
+          Primary_Table: !Ref PrimaryTable
+          CUSTOM_KEY_ID: !Ref CustomKey
+          CUSTOM_KEY_ARN: !GetAtt CustomKey.Arn
+          SQS_URL: !Ref NotificationQueueUrl
+
+  CustomEmailSenderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      # Timeout: 10
+      CodeUri: lambdas/authentication/
+      Handler: custom_email_sender.lambda_handler
+      Role: !Ref CustomRoleArn
+      Environment:
+        Variables:
+          Primary_Table: !Ref PrimaryTable
+          CUSTOM_KEY_ID: !Ref CustomKey
+          CUSTOM_KEY_ARN: !GetAtt CustomKey.Arn
+          SQS_URL: !Ref NotificationQueueUrl
+
+  PreSignUpFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/authentication/
+      Handler: presignup.lambda_handler
+      Role: !Ref CustomRoleArn
+      Environment:
+        Variables:
+          Primary_Table: !Ref PrimaryTable
+
+  PostConfirmationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/authentication/
+      Handler: post_confirmation.lambda_handler
+      Role: !Ref CustomRoleArn
+      Environment:
+        Variables:
+          Primary_Table: !Ref PrimaryTable
+          SQS_URL: !Ref NotificationQueueUrl
+
+  PreAuthenticationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/authentication/
+      Handler: pre_authentication_trigger.lambda_handler
+      Role: !Ref CustomRoleArn
+      Environment:
+        Variables:
+          Primary_Table: !Ref PrimaryTable
+# ================================= Functions =================================
+  ProxyTestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/authentication/
+      Handler: proxy_test.lambda_handler
+      Role: !Ref CustomRoleArn
+      Events:
+        ProxyTestEvent:
+          Type: Api
+          Properties:
+            Path: /authentication/proxy-test
+            Method: get
+            RestApiId: !Ref NestedDefaultApi
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+# IAM Function
+  IamRnDFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/authentication/
+      Handler: iam_rnd.lambda_handler
+      Policies:
+        - IAMFullAccess
+        - AmazonCognitoPowerUser
+      Environment:
+        Variables:
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+      Events:
+        IamRndEvent:
+          Type: Api
+          Properties:
+            Path: /authentication/iam-rnd
+            Method: post
+            RestApiId: !Ref NestedDefaultApi
+            # Auth:
+            #   Authorizer: NONE
+            
+  AuthenticationSocialSignInFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: lambdas/authentication/
+      Handler: social_signin.lambda_handler
+      Role: !Ref CustomRoleArn
+      Environment:
+        Variables:
+          IDENTITY_POOL_ID: !Ref IdentityPool
+          Primary_Table: !Ref PrimaryTable
+          USER_POOL_ID: !Ref UserPool
+          USER_POOL_CLIENT_ID: !Ref UserPoolClient
+          POWERTOOLS_SERVICE_NAME: !Ref PowertoolsAuthService
+      Events:
+        SocialSignInAuthenticationEvent:
+          Type: Api
+          Properties:
+            Path: /authentication/social-signin
+            Method: post
+            RestApiId: !Ref NestedDefaultApi
+            # Auth:
+            #   Authorizer: NONE
+
+Outputs:
+  NestedDefaultApiId:
+    Description: "Api gateway ID"
+    Value: !Ref NestedDefaultApi
+
+  NestedCognitoUserPoolId:
+    Description: "Cognito userpool id"
+    Value: !Ref UserPool
+
+  NestedCognitoUserPoolArn:
+    Description: "Cognito userpool Arn"
+    Value: !GetAtt UserPool.Arn
+
+  NestedCognitoUserPoolClientId:
+    Description: "Cognito userpool client id"
+    Value: !Ref UserPoolClient
+
+  NestedCognitoIdentityPoolId:
+    Description: "Cognito identity id"
+    Value: !Ref IdentityPool
+
+
