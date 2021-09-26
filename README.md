@@ -93,7 +93,7 @@
 
 ![Screenshot from 2021-07-15 11-40-28](https://user-images.githubusercontent.com/77866740/126026086-f28ec127-3834-4386-b851-e64dc705aadc.jpg)
 
-1. After that again click on **Credentials** from the left side menu and then click on **Create Credentials** -> **OAuth Client Id**. Then you will get a dropdown. You have to select **Web Application** from that menu. Then you have to configure **Authorized JavaScript origins** and **Authorized redirect URIs by clicking** on **Add URI** button. In gmail there is nothing to add for localhost. We have to give cognito **domain name** here.
+1. After that again click on **Credentials** from the left side menu and then click on **Create Credentials** -> **OAuth Client Id**. Then you will get a dropdown. You have to select **Web Application** from that menu. Then you have to configure **Authorized JavaScript origins** and here we have to use cognito domain name like as "https://spendwell-auth-stack-dev.auth.us-west-2.amazoncognito.com" and **Authorized redirect URIs** by clicking on **Add URI** button and here we have to use link like **https://spendwell-auth-stack-dev.auth.us-west-2.amazoncognito.com/oauth2/idpresponse** - cognito_domain_name/oauth2/idpresponse. In gmail there is nothing to add for localhost. We have to give cognito **domain name** here.
 
 ![test](https://user-images.githubusercontent.com/77866740/126026103-169bde0b-d8eb-46ca-9324-bc448b912ba0.jpg)
 
