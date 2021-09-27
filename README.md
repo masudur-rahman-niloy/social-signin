@@ -2,6 +2,7 @@
 
 1. We used SAM and nested SAM here. We use dfferent stack for different component. Here auth-stack is a nested SAM. We can add our all environment information in main template and pass it to nested SAM. We have to run following command to use this application:
    **sam build**
+Then   
    **sam deploy --guided --profile profile_name** for first time deploy. If we change anything then we need to build and run following command.
    **sam deploy --profile profile_name**
 
