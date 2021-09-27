@@ -16,8 +16,8 @@ Mappings:
     dev:
       "UserPoolClientCallBackUrlDevAndProd": "http://localhost:4200/dashboard/" # This is used for frontend callback url. Here we can add all our local and live url by using comma.
       "UserPoolClientLogOutUrlDevAndProd": "http://localhost:4200/login/" # This is used for frontend logout url. Here we can add all our local and live url by using comma.
-      "EmailSendingFrom": "spendwell Development< farzana.rahman@shadhinlab.com >"
-      "EmailSendingSESSource": "arn:aws:ses:us-west-2:534678543881:identity/farzana.rahman@shadhinlab.com" # This is our shadhinlab aws account email. It has to be changed with your aws account email arn. 
+      "EmailSendingFrom": "spendwell Development< bimjuthi@gmail.com >"
+      "EmailSendingSESSource": "arn:aws:ses:us-west-2:270149698697:identity/bimjuthi@gmail.com" # This is our shadhinlab aws account email. It has to be changed with your aws account email arn. 
       "FIDGoogleClientId": "248793095851-3esu52oa7dec01gbjueitmq4ruu6tslt.apps.googleusercontent.com" #google app client id
       "FIDGoogleClientSecret": "JXdRYc0fLARn--KAPr2tgmx7" #google app secret id
       "FIDFacebookClientId": "178525270517748" #facebook app client id
