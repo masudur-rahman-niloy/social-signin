@@ -1,0 +1,377 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  spendwell-backend
+
+  Sample SAM Template for spendwell-backend
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 3
+
+# Mapping for different paramteres for different environment 
+Mappings:
+  Environments:
+    dev:
+      "UserPoolClientCallBackUrlDevAndProd": "http://localhost:4200/dashboard/" # This is used for frontend callback url. Here we can add all our local and live url by using comma.
+      "UserPoolClientLogOutUrlDevAndProd": "http://localhost:4200/login/" # This is used for frontend logout url. Here we can add all our local and live url by using comma.
+      "EmailSendingFrom": "spendwell Development< bimjuthi@gmail.com >"
+      "EmailSendingSESSource": "arn:aws:ses:us-west-2:270149698697:identity/bimjuthi@gmail.com" # This is our shadhinlab aws account email. It has to be changed with your aws account email arn. 
+      "FIDGoogleClientId": "248793095851-3esu52oa7dec01gbjueitmq4ruu6tslt.apps.googleusercontent.com" #google app client id
+      "FIDGoogleClientSecret": "JXdRYc0fLARn--KAPr2tgmx7" #google app secret id
+      "FIDFacebookClientId": "178525270517748" #facebook app client id
+      "FIDFacebookClientSecret": 08672463c983ad4eee450fc1741ec848" #facebook app secret id
+
+Parameters:
+  StageName:
+    Type: String
+    Default: dev
+  ProjectNme:
+    Type: String
+    Default: spendwell
+  # Dynamodb related parameters
+  PrimaryTableName:
+    Type: String
+    Default: "spendwell-db"
+  SecondaryTableName:
+    Type: String
+    Default: "spendwell-secondary-db"
+
+  # Authentication related parameters
+  UserPoolName:
+    Type: String
+    Default: "spendwell-user-pool"
+  IdentityPoolName:
+    Type: String
+    Default: "spendwell-identity-pool"
+  UserPoolClientName:
+    Type: String
+    Default: "spendwell-userpool-client"
+  CreateCognitoDomain:
+    Type: String
+    Default: "y"
+  DomainName:
+    Type: String
+    Default: "spendwell-auth-stack"
+  EnableFederatedGoogle:
+    Type: String
+    Default: "y"
+  EnableFederatedFacebook:
+    Type: String
+    Default: "y"
+  EnableFederatedLinkedIn:
+    Type: String
+    Default: "y"
+  VerifyEmail:
+    Type: String
+    Default: "y"
+  VerifyPhone:
+    Type: String
+    Default: "y"
+  EmailAsAlias:
+    Type: String
+    Default: "y"
+  PhoneAsAlias:
+    Type: String
+    Default: "y"
+  PasswordMinimumLength:
+    Type: Number
+    Default: 6
+  PasswordLowerLetterRequired:
+    Type: String
+    Default: "y"
+  PasswordUpperLetterRequired:
+    Type: String
+    Default: "y"
+  PasswordNumberRequired:
+    Type: String
+    Default: "y"
+  PasswordSymbolRequired:
+    Type: String
+    Default: "n"
+
+  #  Notification related parameters
+  NotificationQueueName:
+    Type: String
+    Default: "spendwell-notification-queue"
+  NotificationDLQueueName:
+    Type: String
+    Default: "spendwell-notification-dl-queue"
+  DeviceEndpointRegistrationQueueName:
+    Type: String
+    Default: "spendwell-device-registration-endpoint-queue"
+  DeviceEndpointRegistrationDLQueueName:
+    Type: String
+    Default: "spendwell-device-registration-endpoint-dl-queue"
+  PowertoolsSqsService:
+    Type: String
+    Default: "spendwell-powertools-sqs"
+  PowertoolsAuthService:
+    Type: String
+    Default: "spendwell-powertools-auth"
+
+Resources:
+  # Dynamodb
+  PrimaryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${PrimaryTableName}-${StageName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: "PK"
+          AttributeType: "S"
+        - AttributeName: "SK"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "PK"
+          KeyType: "HASH"
+        - AttributeName: "SK"
+          KeyType: "RANGE"
+
+  SecondaryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${SecondaryTableName}-${StageName}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: "PK"
+          AttributeType: "S"
+        - AttributeName: "SK"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "PK"
+          KeyType: "HASH"
+        - AttributeName: "SK"
+          KeyType: "RANGE"
+
+  # SQS
+  NotificationDLQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${NotificationDLQueueName}-${StageName}"
+
+  NotificationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${NotificationQueueName}-${StageName}"
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt NotificationDLQueue.Arn
+        maxReceiveCount: 3
+
+  # SQS setup for device registration
+  DeviceEndpointRegistrationDLQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${DeviceEndpointRegistrationDLQueueName}-${StageName}"
+
+  DeviceEndpointRegistrationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${DeviceEndpointRegistrationQueueName}-${StageName}"
+      VisibilityTimeout: 60
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeviceEndpointRegistrationDLQueue.Arn
+        maxReceiveCount: 3
+
+
+  # Authentication
+  AuthenticationStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: auth-stack/template.yaml
+      Parameters:
+        StageName: !Ref StageName
+        PrimaryTable: !Ref PrimaryTable
+        SecondaryTable: !Ref SecondaryTable
+        UserPoolName: !Sub "${UserPoolName}-${StageName}"
+        IdentityPoolName: !Sub "${IdentityPoolName}-${StageName}"
+        UserPoolClientName: !Sub "${UserPoolClientName}-${StageName}"
+        CreateCognitoDomain: !Ref CreateCognitoDomain
+        DomainName: !Sub "${DomainName}-${StageName}"
+        EnableFederatedGoogle: !Ref EnableFederatedGoogle
+        EnableFederatedFacebook: !Ref EnableFederatedFacebook
+        VerifyEmail: !Ref VerifyEmail
+        VerifyPhone: !Ref VerifyPhone
+        EmailAsAlias: !Ref EmailAsAlias
+        PhoneAsAlias: !Ref PhoneAsAlias
+        PasswordMinimumLength: !Ref PasswordMinimumLength
+        PasswordLowerLetterRequired: !Ref PasswordLowerLetterRequired
+        PasswordUpperLetterRequired: !Ref PasswordUpperLetterRequired
+        PasswordNumberRequired: !Ref PasswordNumberRequired
+        PasswordSymbolRequired: !Ref PasswordSymbolRequired
+        EmailSendingFrom: !FindInMap [ Environments, !Ref StageName, EmailSendingFrom ]
+        EmailSendingSESSource: !FindInMap [ Environments, !Ref StageName, EmailSendingSESSource ]
+        FIDGoogleClientId: !FindInMap [ Environments, !Ref StageName, FIDGoogleClientId ] # We can easily pass different url through environment and stage name. It is used from mapping section.
+        FIDGoogleClientSecret: !FindInMap [ Environments, !Ref StageName, FIDGoogleClientSecret ] # It is used from mapping section.
+        FIDFacebookClientId: !FindInMap [ Environments, !Ref StageName, FIDFacebookClientId ] # It is used from mapping section.
+        FIDFacebookClientSecret: !FindInMap [ Environments, !Ref StageName, FIDFacebookClientSecret ] # It is used from mapping section.
+        UserPoolClientCallBackUrlDevAndProd: !FindInMap [ Environments, !Ref StageName, UserPoolClientCallBackUrlDevAndProd ] # It is used from mapping section.
+        UserPoolClientLogOutUrlDevAndProd: !FindInMap [ Environments, !Ref StageName, UserPoolClientLogOutUrlDevAndProd ] # It is used from mapping section.
+        PowertoolsAuthService: !Sub "${PowertoolsAuthService}-${StageName}"
+        GlobalUtilsLambdaLayerArn: !Ref GlobalUtils
+        NotificationQueueUrl: !Ref NotificationQueue
+        DeviceRegistrationQueueUrl: !Ref DeviceEndpointRegistrationQueue
+        CustomRoleArn: !GetAtt CustomLambdaRole.Arn
+
+  # Auth API proxy
+  AuthApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt RootDefaultApi.RootResourceId
+      RestApiId: !Ref RootDefaultApi
+      PathPart: 'auth'
+
+  AuthProxyApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !Ref AuthApiResource
+      RestApiId: !Ref RootDefaultApi
+      PathPart: '{proxy+}'
+
+  AuthProxyMethod:
+    DependsOn:
+      - AuthenticationStack
+    Type: AWS::ApiGateway::Method
+    Properties:
+      HttpMethod: ANY
+      ResourceId: !Ref AuthProxyApiResource
+      RestApiId: !Ref RootDefaultApi
+      AuthorizationType: NONE
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        CacheKeyParameters:
+          - 'method.request.path.proxy'
+        RequestParameters:
+          integration.request.path.proxy: 'method.request.path.proxy'
+        IntegrationHttpMethod: ANY
+        Type: HTTP_PROXY
+        Uri: !Sub "https://${AuthenticationStack.Outputs.NestedDefaultApiId}.execute-api.${AWS::Region}.amazonaws.com/${StageName}/{proxy}"
+        PassthroughBehavior: WHEN_NO_MATCH
+        IntegrationResponses:
+          - StatusCode: 200
+
+
+  # For using a common URL for full application, we need a common API
+  RootDefaultApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      TracingEnabled: true
+      StageName: !Ref StageName
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt AuthenticationStack.Outputs.NestedCognitoUserPoolArn
+
+  # Layers
+  GlobalUtils:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub "global-utils-${StageName}"
+      ContentUri: lambda_layers/global_utils/
+      CompatibleRuntimes:
+        - python3.8
+    Metadata:
+      BuildMethod: makefile # If we don't need to run libraries from requiremnet.txt we don't need this line
+
+
+  CustomLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "acm:*"
+                  - "application-autoscaling:*"
+                  - "cloudwatch:*"
+                  - "cloudformation:*"
+                  - "cognito-identity:*"
+                  - "cognito-idp:*"
+                  - "cognito-sync:*"
+                  - "cloudfront-vod:*"
+                  - "dynamodb:*"
+                  - "dax:*"
+                  - "datapipeline:*"
+                  - "ec2:*"
+                  - "iam:*"
+                  - "kms:*"
+                  - "kinesis:*"
+                  - "lambda:*"
+                  - "logs:*"
+                  - "mediaconvert:*"
+                  - "mediapackage-vod:*"
+                  - "mobiletargeting:*"
+                  - "outposts:*"
+                  - "pi:*"
+                  - "rds:*"
+                  - "redshift:*"
+                  - "resource-groups:*"
+                  - "s3:*"
+                  - "secretsmanager:*"
+                  - "sns:*"
+                  - "sqs:*"
+                  - "ses:*"
+                  - "states:*"
+                  - "tag:*"
+
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - "rds-db:connect"
+                Resource: !Sub "arn:aws:rds:us-west-2:${AWS::AccountId}:db-proxy:*/*"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - 'lambda.amazonaws.com'
+                - 'mediaconvert.amazonaws.com'
+                - 'cloudfront.amazonaws.com'
+                - !Sub "states.${AWS::Region}.amazonaws.com"
+                - 'mediapackage.amazonaws.com'
+                - 'rds.amazonaws.com'
+                - 'secretsmanager.amazonaws.com'
+            Action:
+              - 'sts:AssumeRole'
+
+  # We must keep a function in template; otherwise we will get error; That's why this function exists.
+  PingRootFunction:
+    Type: AWS::Serverless::Function # More info about Function Resource: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#awsserverlessfunction
+    Properties:
+      CodeUri: ping_root_template/
+      Handler: app.lambda_handler
+      Runtime: python3.8
+      Events:
+        PingRootTemplate:
+          Type: Api # More info about API Event Source: https://github.com/awslabs/serverless-application-model/blob/master/versions/2016-10-31.md#api
+          Properties:
+            Path: /ping
+            Method: get
+            RestApiId: !Ref RootDefaultApi
+
+  # ================================= Pinpoint App =================================
+
+  PinpointApp:
+    Type: AWS::Pinpoint::App
+    Properties:
+      Name: !Sub "${ProjectNme}-Pinpoint-${StageName}-1"
+
+
+Outputs:
+  UserPoolId:
+    Value: !GetAtt AuthenticationStack.Outputs.NestedCognitoUserPoolId
+  IdentityPoolId:
+    Value: !GetAtt AuthenticationStack.Outputs.NestedCognitoIdentityPoolId
+  AppClientId:
+    Value: !GetAtt AuthenticationStack.Outputs.NestedCognitoUserPoolClientId

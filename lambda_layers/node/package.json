@@ -1,0 +1,39 @@
+{
+  "name": "vod-archive-source",
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=12"
+  },
+  "description": "ingest workflow for video on demand",
+  "main": "index.js",
+  "scripts": {
+    "pretest": "npm i --quiet",
+    "test": "mocha lib/*.spec.js"
+  },
+  "dependencies": {
+    "@middy/core": "^2.4.3",
+    "@middy/http-error-handler": "^2.4.3",
+    "@middy/http-json-body-parser": "^2.4.3",
+    "@middy/validator": "^2.4.3",
+    "axios": "^0.21.1",
+    "lodash": "^4.17.15",
+    "moment": "^2.24.0",
+    "uuid": "^3.4.0",
+    "mysql": "^2.18.1"
+  },
+  "devDependencies": {
+    "aws-sdk": "^2.609.0",
+    "aws-sdk-mock": "^5.0.0",
+    "axios-mock-adapter": "^1.17.0",
+    "chai": "^4.2.0",
+    "lodash": "^4.17.15",
+    "mocha": "^7.0.0",
+    "sinon": "^8.1.1",
+    "sinon-chai": "^3.4.0"
+  },
+  "private": true,
+  "author": {
+    "name": "aws-solutions-builder"
+  },
+  "license": "Apache-2.0"
+}
